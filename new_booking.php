@@ -816,6 +816,7 @@ if (empty($wasteItems)) {
                                             class="form-control"
                                             name="booking_date"
                                             id="bookingDateInput"
+                                            required
                                             value="<?= htmlspecialchars($form['booking_date'] ?: ($form['booking_type'] === 'walkin' ? date('Y-m-d') : '')) ?>">
                                     </div>
 

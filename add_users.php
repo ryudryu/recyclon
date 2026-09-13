@@ -10,7 +10,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
    ACCESS CONTROL — only a logged-in Admin can reach this page
 ------------------------------------------------------------------ */
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Admin') {
-    header('Location: login.php');
+    header('Location: auth/login.php');
     exit();
 }
 
@@ -70,7 +70,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && verify_csrf_token()) {
     if (empty($errors)) {
         $check = $conn->prepare('SELECT user_id FROM users WHERE email = ?');
         $check->execute([$old['email']]);
-        if ($check->rowCount() > 0) {
+        if ($check->fetchColumn() !== false) {
             $errors[] = 'This email is already registered.';
         }
     }

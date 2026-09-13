@@ -57,7 +57,7 @@ try {
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="<?php echo $assetBase . 'assets/css/style.css'; ?>">
-    <link rel="stylesheet" href="assets/css/redirect.css">
+    <link rel="stylesheet" href="<?php echo $assetBase . 'assets/css/redirect.css'; ?>">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" defer></script>
     <?php if ($isCustomer): ?>
         <style>

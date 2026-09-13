@@ -67,8 +67,10 @@ $monthEnd = date('Y-m-d', strtotime($monthStart . ' +1 month'));
 $displayMonth = date('F Y', strtotime($monthStart));
 
 $today = periodBreakdown($conn, "AND s.sale_date::date = CURRENT_DATE");
-$month = periodBreakdown($conn, "AND YEAR(s.sale_date) = $selectedYear AND MONTH(s.sale_date) = $selectedMonth");
-$year = periodBreakdown($conn, "AND YEAR(s.sale_date) = $selectedYear");
+$month = periodBreakdown($conn, "AND s.sale_date >= '{$monthStart} 00:00:00' AND s.sale_date < '{$monthEnd} 00:00:00'");
+$yearStart = sprintf('%04d-01-01', $selectedYear);
+$yearEnd = sprintf('%04d-01-01', $selectedYear + 1);
+$year = periodBreakdown($conn, "AND s.sale_date >= '{$yearStart} 00:00:00' AND s.sale_date < '{$yearEnd} 00:00:00'");
 
 try {
     $activeDaysThisMonth = (int) $conn->query("SELECT COUNT(DISTINCT DATE(s.sale_date))
@@ -76,8 +78,8 @@ try {
         INNER JOIN booking b ON b.booking_id = s.booking_id
         WHERE s.payment_status = 'Paid'
           AND b.status = 'Completed'
-          AND YEAR(s.sale_date)=$selectedYear
-          AND MONTH(s.sale_date)=$selectedMonth")->fetchColumn();
+          AND s.sale_date >= '{$monthStart} 00:00:00'
+          AND s.sale_date < '{$monthEnd} 00:00:00'")->fetchColumn();
 } catch (PDOException $e) {
     $activeDaysThisMonth = 0;
 }

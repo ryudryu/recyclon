@@ -29,7 +29,7 @@ if (isset($_POST['register']) && verify_csrf_token() && trim((string)($_POST['we
     $check = $conn->prepare("SELECT user_id FROM users WHERE email=?");
     $check->execute([$email]);
 
-    if ($check->rowCount() > 0) {
+    if ($check->fetchColumn() !== false) {
 
         $message = "Email already exists.";
     } else {
