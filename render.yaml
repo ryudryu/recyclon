@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: recyclon
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DB_DRIVER
+        value: pgsql
+      - key: SUPABASE_DB_URL
+        sync: false
+      - key: APP_ENCRYPTION_KEY
+        generateValue: true
+      - key: RECYCLON_GPS_API_KEY
+        generateValue: true
+      - key: DEFAULT_TEMP_PASSWORD
+        sync: false
+      - key: ENFORCE_HTTPS
+        value: "true"

@@ -1,0 +1,75 @@
+RECYCLON ONLINE DEPLOYMENT NOTES
+
+The requested implementation covered items 1, 2, 3, 5, 6, 8, and 9 from the
+pre-deployment review. Items 4 and 7 were intentionally left as decisions for
+the deployment owner.
+
+ITEM 4 - MOVE SECRETS TO THE SERVER ENVIRONMENT
+
+This checkout currently reads its rotated local compatibility values from
+storage/private/.env. That directory is denied by Apache and is outside the
+web root file list, but a production server should provide these values through
+its process environment or a secret manager instead:
+
+  DB_HOST
+  DB_NAME
+  DB_USER
+  DB_PASSWORD
+  APP_ENCRYPTION_KEY
+  RECYCLON_GPS_API_KEY
+  DEFAULT_TEMP_PASSWORD
+  ENFORCE_HTTPS=true
+
+Do not commit storage/private/.env, put secrets in a public directory, or reuse
+the legacy SQL dump credentials. Rotate the values again if they were exposed
+outside the local machine.
+
+ITEM 7 - UPGRADE PHP
+
+The reviewed machine is running PHP 8.0.30, which is end-of-life. Install a
+currently supported PHP 8.2+ release after testing the Apache module or PHP-FPM
+configuration. Confirm these extensions are enabled: PDO, pdo_mysql, OpenSSL,
+mbstring, and cURL. Run the PHP lint and security smoke tests after switching
+the runtime, then verify login, booking, queue, GPS, calculation, and receipt
+flows against the production database.
+
+DEPLOYMENT CHECKS
+
+1. Configure a valid TLS certificate and HTTPS virtual host.
+2. Apply database/migrations in order once; do not reintroduce request-time DDL.
+3. Use database/fixtures/recyclon_schema.sql only for a clean non-production
+   schema. Create test accounts with fake data.
+4. Run tests/security_smoke.ps1 with the real base URL.
+5. Review the web server error log and confirm storage/sessions is writable by
+   the PHP worker but not downloadable.
+
+SUPABASE DEPLOYMENT
+
+This application is server-rendered PHP, not a Vite or Next.js frontend. It
+uses PDO directly, so the Supabase integration uses PostgreSQL through PHP's
+pdo_pgsql extension. Do not put a database password or service-role key in
+browser JavaScript.
+
+1. Run supabase/recyclon_supabase.sql in Supabase Dashboard SQL Editor.
+2. Install/enable pdo_pgsql in the PHP runtime.
+3. Configure these server-only values in storage/private/.env or the hosting
+   provider environment:
+
+     DB_DRIVER=pgsql
+     SUPABASE_DB_URL=postgresql://postgres:DB_PASSWORD@DB_HOST:5432/postgres
+
+   Also configure APP_ENCRYPTION_KEY, RECYCLON_GPS_API_KEY, and
+   ENFORCE_HTTPS. The publishable Supabase API key may be used by a browser
+   client, but the secret/service-role key must remain server-side.
+4. Link Supabase Auth users to public.users.auth_user_id before enabling
+   browser-side Auth access. The existing PHP session login remains the
+   compatibility path for the current pages and APIs.
+5. Migrate existing MySQL data separately after testing the schema. Do not
+   paste storage/private/recyclon_legacy.sql into PostgreSQL; it is a MariaDB
+   dump and contains private records.
+
+Local Supabase URLs:
+
+  Studio: http://127.0.0.1:54323
+  API:    http://127.0.0.1:54321
+  DB:     127.0.0.1:54322
