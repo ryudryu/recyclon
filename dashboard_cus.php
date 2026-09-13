@@ -394,6 +394,8 @@ try {
                         onchange="this.form.submit()">
                 </div>
 
+                    <button type="submit" class="btn btn-primary">Apply</button>
+
                 
 
             </form>

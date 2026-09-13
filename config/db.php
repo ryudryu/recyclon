@@ -113,8 +113,17 @@ try {
         $pgDatabase = ltrim((string)($parsedUrl['path'] ?? '/postgres'), '/');
         $pgUser = rawurldecode((string)($parsedUrl['user'] ?? $env['DB_USER']));
         $pgPassword = rawurldecode((string)($parsedUrl['pass'] ?? $env['DB_PASSWORD']));
+        $pgOptions = [];
+        if (!empty($parsedUrl['query'])) {
+            parse_str($parsedUrl['query'], $queryOptions);
+            if (!empty($queryOptions['sslmode'])) {
+                $pgOptions[] = 'sslmode=' . preg_replace('/[^a-z_]/', '', (string)$queryOptions['sslmode']);
+            }
+        }
+        $pgDsn = "pgsql:host=$pgHost;port=$pgPort;dbname=$pgDatabase"
+            . ($pgOptions ? ';' . implode(';', $pgOptions) : '');
         $conn = new PDO(
-            "pgsql:host=$pgHost;port=$pgPort;dbname=$pgDatabase",
+            $pgDsn,
             $pgUser,
             $pgPassword
         );

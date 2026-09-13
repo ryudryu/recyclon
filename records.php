@@ -261,6 +261,9 @@ function tabCount($bookings, $label) {
                         <option value="oldest" <?= $sort === 'oldest' ? 'selected' : '' ?>><?= htmlspecialchars(t('oldest_booking')) ?></option>
                     </select>
                 </div>
+                <div class="col-12">
+                    <button type="submit" class="btn btn-primary fw-bold">Apply Filters</button>
+                </div>
             </div>
          </form>
         <?php
