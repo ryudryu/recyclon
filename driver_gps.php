@@ -215,6 +215,7 @@ let statusRequest = null;
 let routeLine = null;
 let destinationMarker = null;
 let routeKey = '';
+let routeRequestGeneration = 0;
 let followMode = true;
 let geocodeInFlight = false;
 
@@ -334,6 +335,7 @@ function findDestinationCoordinates(location) {
 }
 
 function drawRoute(startLat, startLng) {
+    const requestGeneration = ++routeRequestGeneration;
     const destination = coordinatesFromOption();
     updateDestinationSummary();
     if (!destination) {
@@ -407,6 +409,7 @@ function drawRoute(startLat, startLng) {
         '?overview=full&geometries=geojson';
     fetchRouteWithFallback(routePath)
         .then(data => {
+            if (requestGeneration !== routeRequestGeneration) return;
             if (!data.routes || !data.routes[0]) throw new Error('No route');
             if (routeLine) { driverMap.removeLayer(routeLine); routeLine = null; }
             routeLine = L.geoJSON(data.routes[0].geometry, {
@@ -418,6 +421,7 @@ function drawRoute(startLat, startLng) {
             driverMap.fitBounds(routeLine.getBounds().extend([start, [destination.destinationLat, destination.destinationLng]]), { padding: [24, 24] });
         })
         .catch(() => {
+            if (requestGeneration !== routeRequestGeneration) return;
             if (!routeLine) {
                 routeLine = L.polyline([start, [destination.destinationLat, destination.destinationLng]], {
                     color: '#2563eb', weight: 5, dashArray: '10 8', opacity: 0.85
