@@ -733,8 +733,15 @@ if (empty($wasteItems)) {
                             </div>
                      <div class="row g-3 mb-4">
 
-                       <?php
- foreach ($categories as $cat): ?>
+                         <?php if (empty($categories)): ?>
+                             <div class="col-12">
+                                 <div class="alert alert-warning mb-0">
+                                     No active waste categories are configured yet. An administrator must add a category before this booking can be submitted.
+                                 </div>
+                             </div>
+                         <?php endif; ?>
+
+                         <?php foreach ($categories as $cat): ?>
 
                    <?php
 
@@ -862,16 +869,13 @@ if (empty($wasteItems)) {
                             <?php
  endif; ?>
 
-                            <?php
- if (!empty($categories)): ?>
                                 <button type="submit"
                                     class="btn w-100 d-flex align-items-center justify-content-center gap-2 fw-bold py-2"
-                                    style="background:var(--nav-bg);color:#fff;border-radius:10px;border:none;font-size:1rem;">
+                                    style="background:var(--nav-bg);color:#fff;border-radius:10px;border:none;font-size:1rem;"
+                                    <?= empty($categories) ? 'disabled' : '' ?>>
                                     ➕
                                     <?= $isEditing ? 'Update Booking' : 'Create Booking' ?>
                                 </button>
-                            <?php
- endif; ?>
 
                         </div>
                     </div>

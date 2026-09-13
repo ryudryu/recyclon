@@ -150,6 +150,24 @@ create index if not exists sales_booking_idx on public.sales (booking_id);
 create index if not exists sale_items_sale_idx on public.sale_items (sale_id);
 create index if not exists price_history_waste_idx on public.price_history (waste_id, changed_at desc);
 
+-- Starter pricing rows keep the new-booking form usable on a fresh project.
+-- Existing categories are preserved; each row is inserted only when its name
+-- is not already present.
+insert into public.waste_categories (category_name, unit_price, unit, status)
+select seed.category_name, seed.unit_price, seed.unit, 'Active'
+from (values
+    ('Paper Box', 1.00::numeric, 'kg'),
+    ('Paper', 0.80::numeric, 'kg'),
+    ('Metal', 2.50::numeric, 'kg'),
+    ('Plastic', 1.50::numeric, 'kg'),
+    ('Rubbish', 0.50::numeric, 'kg'),
+    ('Tin', 0.80::numeric, 'kg')
+) as seed(category_name, unit_price, unit)
+where not exists (
+    select 1 from public.waste_categories existing
+    where lower(existing.category_name) = lower(seed.category_name)
+);
+
 -- Keep timestamps current for queue updates.
 create or replace function public.set_arrival_queue_updated_at()
 returns trigger language plpgsql as $$
