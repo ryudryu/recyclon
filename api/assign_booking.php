@@ -57,7 +57,7 @@ try {
     }
 
     $hasAutoAccept = in_array('auto_accept_bookings', app_table_columns($conn, 'users'), true);
-    $autoAcceptSelect = $hasAutoAccept ? "COALESCE(u.auto_accept_bookings, 0) AS auto_accept_bookings," : "0 AS auto_accept_bookings,";
+    $autoAcceptSelect = $hasAutoAccept ? "COALESCE(u.auto_accept_bookings, false) AS auto_accept_bookings," : "false AS auto_accept_bookings,";
     $lorryStmt = $conn->prepare("
         SELECT l.lorry_id, l.plate_number, l.driver_id, l.status,
                $autoAcceptSelect

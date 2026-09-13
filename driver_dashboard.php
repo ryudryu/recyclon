@@ -32,7 +32,7 @@ $autoAcceptBookings = false;
 try {
     $autoAcceptColumn = in_array('auto_accept_bookings', app_table_columns($conn, 'users'), true);
     if ($autoAcceptColumn) {
-        $autoAcceptStmt = $conn->prepare("SELECT COALESCE(auto_accept_bookings, 0) FROM users WHERE user_id=? LIMIT 1");
+        $autoAcceptStmt = $conn->prepare("SELECT COALESCE(auto_accept_bookings, false) FROM users WHERE user_id=? LIMIT 1");
         $autoAcceptStmt->execute([$driverId]);
         $autoAcceptBookings = (bool)$autoAcceptStmt->fetchColumn();
     }

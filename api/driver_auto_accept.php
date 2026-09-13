@@ -24,7 +24,7 @@ if ($csrf === '' || !hash_equals($csrf, (string)($input['csrf_token'] ?? ''))) {
 
 try {
     require_once __DIR__ . '/../config/db.php';
-    $enabled = !empty($input['enabled']) ? 1 : 0;
+    $enabled = !empty($input['enabled']);
     $stmt = $conn->prepare("UPDATE users SET auto_accept_bookings=? WHERE user_id=? AND role='Driver'");
     $stmt->execute([$enabled, $driverId]);
     echo json_encode(['success' => true, 'enabled' => (bool)$enabled]);
