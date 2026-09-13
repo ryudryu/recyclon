@@ -123,7 +123,10 @@ try {
          LEFT JOIN sales s ON s.booking_id = b.booking_id
          LEFT JOIN sale_items si ON si.sale_id = s.sale_id
          LEFT JOIN waste_categories wc ON wc.waste_id = si.waste_id
-         GROUP BY b.booking_id
+         GROUP BY b.booking_id, b.customer_id, b.driver_id, b.lorry_id,
+                  b.address, b.status, b.booking_date, b.pickup_date,
+                  b.scheduled_date, b.created_at, b.booking_type,
+                  u.name, u.ic_number, driver.name
          ORDER BY b.booking_date DESC, b.booking_id DESC"
     )->fetchAll(PDO::FETCH_ASSOC);
 
