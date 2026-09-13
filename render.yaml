@@ -14,6 +14,6 @@ services:
       - key: RECYCLON_GPS_API_KEY
         generateValue: true
       - key: DEFAULT_TEMP_PASSWORD
-        sync: false
+        generateValue: true
       - key: ENFORCE_HTTPS
         value: "true"

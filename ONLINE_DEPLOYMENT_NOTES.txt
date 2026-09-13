@@ -52,11 +52,11 @@ browser JavaScript.
 
 1. Run supabase/recyclon_supabase.sql in Supabase Dashboard SQL Editor.
 2. Install/enable pdo_pgsql in the PHP runtime.
-3. Configure these server-only values in storage/private/.env or the hosting
+   3. Configure these server-only values in storage/private/.env or the hosting
    provider environment:
 
      DB_DRIVER=pgsql
-     SUPABASE_DB_URL=postgresql://postgres:DB_PASSWORD@DB_HOST:5432/postgres
+   SUPABASE_DB_URL=postgresql://postgres.PROJECT_REF:DB_PASSWORD@HOSTED_SUPABASE_HOST:5432/postgres
 
    Also configure APP_ENCRYPTION_KEY, RECYCLON_GPS_API_KEY, and
    ENFORCE_HTTPS. The publishable Supabase API key may be used by a browser
