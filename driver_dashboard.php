@@ -290,7 +290,7 @@ foreach ($queue as $queueItem) {
                                             <?php elseif ($queueStatus === 'pending'): ?>
                                                 <span class="small text-secondary">After current stop</span>
                                             <?php else: ?>
-                                                <span class="small text-success fw-semibold">Current stop</span>
+                                                <button type="button" class="btn btn-sm btn-primary driver-complete-queue" disabled>Move within 50m to Complete</button>
                                             <?php endif; ?>
                                         </td>
                                     </tr>
@@ -453,16 +453,6 @@ foreach ($queue as $queueItem) {
                 if (statusElement && gpsData && gpsData.current_status) {
                     statusElement.textContent = gpsData.current_status;
                 }
-                // The API may complete the current stop and assign the next
-                // nearest destination in the same update. The background
-                // dashboard sync will update the queue and route in place.
-                if (result && result.success && gpsData &&
-                    (gpsData.arrival_completed || gpsData.assigned_destination)) {
-                    if (gpsData.arrival_completed && !gpsData.assigned_destination && gpsData.destination_active === false) {
-                        stopDashboardTracking('Destination completed');
-                    }
-                    return;
-                }
                 if (status === 'On Duty' && result && result.success && gpsData &&
                     gpsData.destination_active === false) {
                     stopDashboardTracking('No destination assigned');
@@ -492,6 +482,11 @@ foreach ($queue as $queueItem) {
         completeButton.disabled = !isNear;
         completeButton.textContent = isNear ? 'Complete Destination' : 'Move within 50m to Complete';
         completeButton.title = isNear ? 'Complete this arrival' : 'Move within 50 metres of the arrival location';
+        document.querySelectorAll('.driver-complete-queue').forEach(button => {
+            button.disabled = !isNear;
+            button.textContent = isNear ? 'Complete' : 'Move within 50m';
+            button.title = completeButton.title;
+        });
     }
 
     async function completeDashboardDestination() {
@@ -527,6 +522,7 @@ foreach ($queue as $queueItem) {
     }
 
     completeButton.addEventListener('click', completeDashboardDestination);
+    window.recyclonCompleteQueueDestination = completeDashboardDestination;
 
     startButton.addEventListener('click', async () => {
         if (!navigator.geolocation || trackingActive) return;
@@ -703,7 +699,7 @@ function renderDriverQueue(queue) {
         const lat = item.latitude ?? (status === 'ongoing' ? item.destination_lat : null);
         const lng = item.longitude ?? (status === 'ongoing' ? item.destination_long : null);
         const coordinates = lat != null && lng != null ? Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6) : 'Coordinates pending';
-        let action = '<span class="small text-success fw-semibold">Current stop</span>';
+        let action = '<button type="button" class="btn btn-sm btn-primary driver-complete-queue" disabled>Move within 50m</button>';
         if (status === 'pending' && !hasOngoing) {
             action = '<button type="button" class="btn btn-sm btn-success driver-accept-queue" data-queue-id="' + Number(item.id || 0) + '" data-location="' + escapeHtml(location) + '" data-auto-start="1">Start job</button>';
         } else if (status === 'pending') {
@@ -822,6 +818,14 @@ function renderDriverQueue(queue) {
 })();
 
 document.addEventListener('click', async event => {
+    const completeButton = event.target.closest('.driver-complete-queue');
+    if (completeButton) {
+        if (typeof window.recyclonCompleteQueueDestination === 'function') {
+            await window.recyclonCompleteQueueDestination();
+        }
+        return;
+    }
+
     const button = event.target.closest('.driver-accept-queue');
     if (!button) return;
     {
