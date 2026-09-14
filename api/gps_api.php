@@ -98,7 +98,7 @@ $reportedDestinationName = trim((string)($input['destination_name'] ?? ''));
 if ($reportedDestinationLat !== null && ($reportedDestinationLat < -90 || $reportedDestinationLat > 90)) $reportedDestinationLat = null;
 if ($reportedDestinationLng !== null && ($reportedDestinationLng < -180 || $reportedDestinationLng > 180)) $reportedDestinationLng = null;
 
-if ($action !== 'update') {
+if (!in_array($action, ['update', 'complete'], true)) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Unsupported GPS action.']);
     exit;
@@ -134,9 +134,11 @@ if ($status !== 'Available') {
 
 try {
     $check = $conn->prepare("
-        SELECT lorry_id, driver_id, destination_lat, destination_long, current_lat, current_long
-        FROM lorries
-        WHERE lorry_id = ?
+         SELECT l.lorry_id, l.driver_id, l.plate_number, l.destination_lat, l.destination_long,
+             l.current_lat, l.current_long, u.name AS driver_name
+        FROM lorries l
+         LEFT JOIN users u ON u.user_id = l.driver_id
+         WHERE l.lorry_id = ?
         LIMIT 1
     ");
     $check->execute([$lorryId]);
@@ -255,7 +257,14 @@ try {
 
     $destinationCleared = false;
 
-    if ($lat !== null && $lng !== null &&
+    if ($action === 'complete' &&
+        ($lorryRow['destination_lat'] === null || $lorryRow['destination_long'] === null)) {
+        http_response_code(409);
+        echo json_encode(['success' => false, 'message' => 'There is no active destination to complete.']);
+        exit;
+    }
+
+    if ($action === 'complete' && $lat !== null && $lng !== null &&
         $lorryRow['destination_lat'] !== null &&
         $lorryRow['destination_long'] !== null) {
 
@@ -265,36 +274,43 @@ try {
             (float)$lorryRow['destination_lat'],
             (float)$lorryRow['destination_long']
         );
-
-        if ($distanceToDestination <= 0.05) { // 50 metres
-            $queueId = completeOneQueueItem(
-                $conn,
-                $lorryId,
-                (int)($lorryRow['driver_id'] ?? 0),
-                (float)$lorryRow['destination_lat'],
-                (float)$lorryRow['destination_long'],
-                $reportedDestinationName !== '' ? $reportedDestinationName : null
-            );
-
-            if ($queueId !== null) {
-                $conn->prepare("
-                    UPDATE lorries
-                    SET destination_lat = NULL, destination_long = NULL, destination_set_at = NULL, status = 'Available'
-                    WHERE lorry_id = ?
-                ")->execute([$lorryId]);
-
-                $responseData['arrival_completed'] = true;
-                $responseData['completed_queue_id'] = $queueId;
-                $destinationCleared = true;
-            }
+        if ($distanceToDestination > 0.05) {
+            http_response_code(422);
+            echo json_encode([
+                'success' => false,
+                'message' => 'You must be within 50 metres of the arrival location to complete this destination.',
+                'distance_m' => (int)round($distanceToDestination * 1000),
+            ]);
+            exit;
         }
+
+        $queueId = completeOneQueueItem(
+            $conn,
+            $lorryId,
+            (int)($lorryRow['driver_id'] ?? 0),
+            (float)$lorryRow['destination_lat'],
+            (float)$lorryRow['destination_long'],
+            $reportedDestinationName !== '' ? $reportedDestinationName : null
+        );
+
+        // Completion is an explicit driver action; it is not inferred from
+        // GPS distance because a location fix can be inaccurate or indirect.
+        $conn->prepare("
+            UPDATE lorries
+            SET destination_lat = NULL, destination_long = NULL, destination_set_at = NULL, status = 'Available'
+            WHERE lorry_id = ?
+        ")->execute([$lorryId]);
+
+        $responseData['arrival_completed'] = true;
+        $responseData['completed_queue_id'] = $queueId;
+        $destinationCleared = true;
     }
 
     // When a lorry is On Duty and has no active destination, assign the
     // nearest pending job for that lorry. This also runs immediately after
     // the previous destination is completed, so the driver receives the next
     // route without needing to stop and restart tracking.
-    if ($status === 'On Duty' &&
+    if ($action === 'update' && $status === 'On Duty' &&
         $lorryRow &&
         ($destinationCleared || empty($lorryRow['destination_lat'])) &&
         !empty($lorryRow['driver_id'])) {
@@ -370,6 +386,17 @@ try {
                 }
             }
         }
+    }
+
+    // Do not leave a driver On Duty when the queue has no active work. This
+    // also covers legacy queue schemas and completed destinations.
+    $check->execute([$lorryId]);
+    $lorryRow = $check->fetch(PDO::FETCH_ASSOC) ?: $lorryRow;
+    if ($status === 'On Duty' &&
+        empty($lorryRow['destination_lat']) &&
+        empty($lorryRow['destination_long']) &&
+        !hasOngoingQueue($conn, $lorryRow, $lorryId)) {
+        $conn->prepare("UPDATE lorries SET status = 'Available' WHERE lorry_id = ?")->execute([$lorryId]);
     }
 
     $destinationState = $conn->prepare("
@@ -515,6 +542,38 @@ function completeOneQueueItem(PDO $conn, int $lorryId, int $driverId, ?float $la
     } catch (Throwable $e) {
         return null;
     }
+}
+
+function hasOngoingQueue(PDO $conn, array $lorryRow, int $lorryId): bool {
+    if (!app_table_exists($conn, 'arrival_queue')) return false;
+    $cols = app_table_columns($conn, 'arrival_queue');
+    if (!in_array('status', $cols, true)) return false;
+
+    $where = ["status = 'ongoing'"];
+    $params = [];
+    if (in_array('assigned_lorry_id', $cols, true)) {
+        $where[] = 'assigned_lorry_id = ?';
+        $params[] = $lorryId;
+    } elseif (in_array('driver_id', $cols, true) && !empty($lorryRow['driver_id'])) {
+        $where[] = 'driver_id = ?';
+        $params[] = (int)$lorryRow['driver_id'];
+    } else {
+        $identity = [];
+        if (in_array('plate_number', $cols, true) && !empty($lorryRow['plate_number'])) {
+            $identity[] = 'plate_number = ?';
+            $params[] = (string)$lorryRow['plate_number'];
+        }
+        if (in_array('driver_name', $cols, true) && !empty($lorryRow['driver_name'])) {
+            $identity[] = 'driver_name = ?';
+            $params[] = (string)$lorryRow['driver_name'];
+        }
+        if (!$identity) return false;
+        $where[] = '(' . implode(' OR ', $identity) . ')';
+    }
+
+    $stmt = $conn->prepare('SELECT 1 FROM arrival_queue WHERE ' . implode(' AND ', $where) . ' LIMIT 1');
+    $stmt->execute($params);
+    return (bool)$stmt->fetchColumn();
 }
 
 function haversineDistance($lat1, $lng1, $lat2, $lng2): float {

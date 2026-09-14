@@ -248,6 +248,7 @@ foreach ($queue as $queueItem) {
                 <div class="driver-route-actions p-3">
                     <button type="button" class="btn btn-success fw-bold" id="dashboardStartTracking">Start Tracking</button>
                     <button type="button" class="btn btn-danger fw-bold d-none" id="dashboardStopTracking">Stop Tracking</button>
+                    <button type="button" class="btn btn-primary fw-bold d-none" id="dashboardCompleteDestination" disabled>Move within 50m to Complete</button>
                 </div>
             </div>
             <div class="card border-0 shadow-sm mt-4">
@@ -314,6 +315,7 @@ foreach ($queue as $queueItem) {
     const fullscreenButton = document.getElementById('driverMapFullscreen');
     const startButton = document.getElementById('dashboardStartTracking');
     const stopButton = document.getElementById('dashboardStopTracking');
+    const completeButton = document.getElementById('dashboardCompleteDestination');
     const followBadge = document.getElementById('driverFollowBadge');
     if (!routeMapElement || typeof L === 'undefined') return;
 
@@ -403,6 +405,7 @@ foreach ($queue as $queueItem) {
         if (currentMarker) currentMarker.setLatLng([latestLat, latestLng]);
         else currentMarker = L.marker([latestLat, latestLng], { icon: driverIcon(heading) }).addTo(map).bindTooltip('Your current location');
         updateHeading(heading);
+        updateCompletionButton();
         if (!routeInitialized && hasDestination) initializeRoute();
         if (trackingActive && followMode) {
             if (!driverFollowZoomed) {
@@ -468,6 +471,63 @@ foreach ($queue as $queueItem) {
             .catch(() => {});
     }
 
+    function distanceBetweenPoints(lat1, lng1, lat2, lng2) {
+        const radians = value => value * Math.PI / 180;
+        const dLat = radians(lat2 - lat1);
+        const dLng = radians(lng2 - lng1);
+        const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
+        return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function updateCompletionButton() {
+        if (!completeButton) return;
+        const hasGps = Number.isFinite(latestLat) && Number.isFinite(latestLng);
+        const hasTarget = Number.isFinite(destinationLat) && Number.isFinite(destinationLng);
+        const distanceM = hasGps && hasTarget
+            ? distanceBetweenPoints(latestLat, latestLng, destinationLat, destinationLng) * 1000
+            : Infinity;
+        const isNear = distanceM <= 50;
+        completeButton.classList.toggle('d-none', !trackingActive || !hasTarget);
+        completeButton.disabled = !isNear;
+        completeButton.textContent = isNear ? 'Complete Destination' : 'Move within 50m to Complete';
+        completeButton.title = isNear ? 'Complete this arrival' : 'Move within 50 metres of the arrival location';
+    }
+
+    async function completeDashboardDestination() {
+        if (!trackingActive || !Number.isFinite(latestLat) || !Number.isFinite(latestLng) || !hasDestination) return;
+        if (!confirm('Mark this destination as completed?')) return;
+        completeButton.disabled = true;
+        completeButton.textContent = 'Completing...';
+        const body = new FormData();
+        body.append('action', 'complete');
+        body.append('csrf_token', csrfToken);
+        body.append('lorry_id', lorryId);
+        body.append('lat', latestLat);
+        body.append('lng', latestLng);
+        body.append('status', 'On Duty');
+        body.append('destination_name', destinationName);
+        try {
+            const response = await fetch('api/gps_api.php', { method: 'POST', body, credentials: 'same-origin' });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || 'Could not complete destination.');
+            destinationLat = null;
+            destinationLng = null;
+            hasDestination = false;
+            if (destinationMarker) { map.removeLayer(destinationMarker); destinationMarker = null; }
+            if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+            routeInitialized = false;
+            updateCompletionButton();
+            stopDashboardTracking('Destination completed');
+            window.dispatchEvent(new CustomEvent('recyclon:driver-route-update', { detail: { destination_lat: null, destination_long: null } }));
+        } catch (error) {
+            routeStatus.textContent = error.message;
+            updateCompletionButton();
+        }
+    }
+
+    completeButton.addEventListener('click', completeDashboardDestination);
+
     startButton.addEventListener('click', async () => {
         if (!navigator.geolocation || trackingActive) return;
         if (statusRequest) {
@@ -491,6 +551,7 @@ foreach ($queue as $queueItem) {
         followBadge.style.color = '#1d4ed8';
         startButton.classList.add('d-none');
         stopButton.classList.remove('d-none');
+        updateCompletionButton();
         routeStatus.textContent = 'Tracking active · sending your location every 5 seconds';
         watchId = navigator.geolocation.watchPosition(position => {
             updateDashboardPosition(position);
@@ -513,6 +574,7 @@ foreach ($queue as $queueItem) {
         statusRequest = sendDashboardPosition('Available');
         startButton.classList.remove('d-none');
         stopButton.classList.add('d-none');
+        completeButton.classList.add('d-none');
         routeStatus.textContent = message;
     }
 
@@ -569,6 +631,7 @@ foreach ($queue as $queueItem) {
         destinationLng = update.destination_long == null ? null : Number(update.destination_long);
         destinationName = update.destination_name || 'Assigned destination';
         hasDestination = destinationLat !== null && destinationLng !== null;
+        updateCompletionButton();
         if (destinationCard) {
             destinationCard.innerHTML = hasDestination
                 ? '<div class="text-secondary small fw-bold text-uppercase mb-2">Current Destination</div><h2 class="h5 fw-bold mb-2">' + destinationName.replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[character])) + '</h2><div class="text-secondary small">Status: <strong>Ongoing</strong></div><div class="text-secondary small">Coordinates: ' + destinationLat.toFixed(6) + ', ' + destinationLng.toFixed(6) + '</div><div class="text-secondary small mt-2">Your route is ready. Use the Start Tracking button below to begin.</div>'

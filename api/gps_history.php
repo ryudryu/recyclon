@@ -8,7 +8,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
 require_once __DIR__ . '/../config/db.php';
 
 $role = strtolower(trim((string)($_SESSION['role'] ?? '')));
-if ((int)($_SESSION['user_id'] ?? 0) <= 0 || !in_array($role, ['admin', 'staff'], true)) {
+if ((int)($_SESSION['user_id'] ?? 0) <= 0 || !in_array($role, ['admin', 'staff', 'driver'], true)) {
     http_response_code(403);
     echo json_encode(['success' => false, 'message' => 'Administrator or staff login required.']);
     exit;
@@ -28,6 +28,17 @@ if ($lorryId <= 0) {
     http_response_code(400);
     echo json_encode(['success' => false, 'message' => 'Invalid lorry_id.']);
     exit;
+}
+
+if ($role === 'driver') {
+    $access = $conn->prepare('SELECT driver_id FROM lorries WHERE lorry_id = ? LIMIT 1');
+    $access->execute([$lorryId]);
+    $assignedDriverId = $access->fetchColumn();
+    if ((int)$assignedDriverId !== (int)$_SESSION['user_id']) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'message' => 'You can only view GPS history for your assigned lorry.']);
+        exit;
+    }
 }
 
 try {

@@ -158,6 +158,7 @@ if ($currentUserId > 0 && in_array($currentRole, ['Staff', 'Driver'], true)) {
             <div class="destination-summary-name" id="destinationSummaryName">No destination assigned</div>
             <div class="destination-summary-meta" id="destinationSummaryMeta">An administrator must assign a pickup before you start.</div>
             <a class="destination-navigation-btn hidden" id="destinationNavigationBtn" href="#" target="_blank" rel="noopener">Open turn-by-turn navigation &rarr;</a>
+            <button type="button" class="btn btn-complete hidden" id="completeDestinationBtn">Complete Destination</button>
         </div>
 
         <div class="coords-display" id="coordsDisplay">
@@ -192,7 +193,7 @@ if ($currentUserId > 0 && in_array($currentRole, ['Staff', 'Driver'], true)) {
             <strong>2.</strong> Tap <strong>"Start Tracking"</strong> &mdash; your browser will ask for location permission<br>
             <strong>3.</strong> Every <strong>5 seconds</strong> your GPS position is sent to the server<br>
             <strong>4.</strong> Status automatically changes to <strong>"On Duty"</strong><br>
-            <strong>5.</strong> Tap <strong>Stop Tracking</strong> when done (status -&gt; Available)
+            <strong>5.</strong> Tap <strong>Complete Destination</strong> when the pickup is finished
         </div>
     </div>
 </div>
@@ -213,6 +214,9 @@ let positionRequestInFlight = false;
 let activeRequestController = null;
 let statusRequest = null;
 let routeLine = null;
+let traveledLine = null;
+let traveledPoints = [];
+let traveledLoadGeneration = 0;
 let destinationMarker = null;
 let routeKey = '';
 let routeRequestGeneration = 0;
@@ -237,6 +241,7 @@ const routePanel = document.getElementById('routePanel');
 const destinationSummaryName = document.getElementById('destinationSummaryName');
 const destinationSummaryMeta = document.getElementById('destinationSummaryMeta');
 const destinationNavigationBtn = document.getElementById('destinationNavigationBtn');
+const completeDestinationBtn = document.getElementById('completeDestinationBtn');
 const mapShell = document.getElementById('driverMapShell');
 const fullscreenMapBtn = document.getElementById('fullscreenMapBtn');
 const locateMapBtn = document.getElementById('locateMapBtn');
@@ -277,6 +282,7 @@ function updateDestinationSummary() {
         destinationSummaryName.textContent = 'No destination assigned';
         destinationSummaryMeta.textContent = 'An administrator must assign a pickup before you start.';
         destinationNavigationBtn.classList.add('hidden');
+        completeDestinationBtn.classList.add('hidden');
         return;
     }
 
@@ -285,11 +291,86 @@ function updateDestinationSummary() {
         destinationSummaryMeta.textContent = 'Route goal: ' + destination.destinationLat.toFixed(6) + '°N, ' + destination.destinationLng.toFixed(6) + '°E';
         destinationNavigationBtn.href = 'https://www.google.com/maps/dir/?api=1&destination=' + destination.destinationLat + ',' + destination.destinationLng;
         destinationNavigationBtn.classList.remove('hidden');
+        updateCompletionButton(destination);
     } else {
         destinationSummaryMeta.textContent = 'Ongoing pickup · finding route coordinates...';
         destinationNavigationBtn.classList.add('hidden');
+        completeDestinationBtn.classList.add('hidden');
     }
 }
+
+function distanceBetweenPoints(lat1, lng1, lat2, lng2) {
+    const earthRadius = 6371;
+    const radians = value => value * Math.PI / 180;
+    const dLat = radians(lat2 - lat1);
+    const dLng = radians(lng2 - lng1);
+    const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
+    return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function updateCompletionButton(destination) {
+    const hasGps = Number.isFinite(currentLat) && Number.isFinite(currentLng);
+    const hasDestination = Number.isFinite(destination.destinationLat) && Number.isFinite(destination.destinationLng);
+    const distanceM = hasGps && hasDestination
+        ? distanceBetweenPoints(currentLat, currentLng, destination.destinationLat, destination.destinationLng) * 1000
+        : Infinity;
+    const isNear = distanceM <= 50;
+
+    completeDestinationBtn.classList.toggle('hidden', !trackingActive);
+    completeDestinationBtn.disabled = !isNear;
+    completeDestinationBtn.title = isNear
+        ? 'Complete this arrival'
+        : 'Move within 50 metres of the arrival location';
+    completeDestinationBtn.textContent = isNear
+        ? 'Complete Destination'
+        : 'Move within 50m to Complete';
+}
+
+async function completeDestination() {
+    if (!trackingActive || !lorryId || currentLat === null || currentLng === null) {
+        updateStatus('error', 'Start tracking and wait for a GPS position first.');
+        return;
+    }
+    if (!coordinatesFromOption()) {
+        updateStatus('error', 'There is no active destination to complete.');
+        return;
+    }
+    if (!confirm('Mark this destination as completed?')) return;
+
+    completeDestinationBtn.disabled = true;
+    completeDestinationBtn.textContent = 'Completing...';
+    const formData = new FormData();
+    formData.append('action', 'complete');
+    formData.append('csrf_token', CSRF_TOKEN);
+    formData.append('lorry_id', lorryId);
+    formData.append('lat', currentLat);
+    formData.append('lng', currentLng);
+    formData.append('status', 'On Duty');
+    const destination = coordinatesFromOption();
+    if (destination.destinationName) formData.append('destination_name', destination.destinationName);
+
+    try {
+        const response = await fetch(API_URL, { method: 'POST', body: formData, credentials: 'same-origin' });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Could not complete destination.');
+        addHistory(new Date().toLocaleTimeString('en-MY', { hour12: false }), 'Destination completed', true);
+        const option = selectedLorryOption();
+        option.dataset.destinationLat = '';
+        option.dataset.destinationLng = '';
+        option.dataset.ongoingLocation = '';
+        routeKey = '';
+        drawRoute(currentLat, currentLng);
+        completeDestinationBtn.classList.add('hidden');
+        stopTracking();
+    } catch (error) {
+        updateStatus('error', error.message);
+        completeDestinationBtn.disabled = false;
+        completeDestinationBtn.textContent = 'Complete Destination';
+    }
+}
+
+completeDestinationBtn.addEventListener('click', completeDestination);
 
 function fetchJsonWithTimeout(url, options = {}, timeoutMs = 8000) {
     const controller = new AbortController();
@@ -432,8 +513,58 @@ function drawRoute(startLat, startLng) {
         });
 }
 
+function resetTraveledPath() {
+    traveledLoadGeneration++;
+    traveledPoints = [];
+    if (traveledLine) {
+        driverMap.removeLayer(traveledLine);
+        traveledLine = null;
+    }
+}
+
+function loadTraveledPath() {
+    const selectedId = lorrySelect.value;
+    const loadGeneration = ++traveledLoadGeneration;
+    if (!selectedId) return;
+    fetch('api/gps_history.php?lorry_id=' + encodeURIComponent(selectedId) + '&limit=200', { credentials: 'same-origin' })
+        .then(response => response.json())
+        .then(data => {
+            if (loadGeneration !== traveledLoadGeneration || lorrySelect.value !== selectedId || traveledPoints.length || !data.success) return;
+            const points = (data.history || []).reverse()
+                .map(item => [Number.parseFloat(item.latitude), Number.parseFloat(item.longitude)])
+                .filter(point => Number.isFinite(point[0]) && Number.isFinite(point[1]));
+            if (points.length < 2) return;
+            traveledPoints = points;
+            traveledLine = L.polyline(traveledPoints, {
+                color: '#1d4ed8', weight: 5, opacity: 0.9,
+                lineCap: 'round', lineJoin: 'round'
+            }).addTo(driverMap);
+        })
+        .catch(() => {});
+}
+
+function appendTraveledPoint(lat, lng, accuracy) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    // Ignore weak fixes and tiny GPS jitter so the breadcrumb follows the road.
+    if (Number.isFinite(accuracy) && accuracy > 75) return;
+    const lastPoint = traveledPoints[traveledPoints.length - 1];
+    if (lastPoint && driverMap.distance(lastPoint, [lat, lng]) < 8) return;
+    traveledPoints.push([lat, lng]);
+    if (traveledPoints.length > 1000) traveledPoints.shift();
+    if (!traveledLine) {
+        traveledLine = L.polyline(traveledPoints, {
+            color: '#1d4ed8', weight: 5, opacity: 0.9,
+            lineCap: 'round', lineJoin: 'round'
+        }).addTo(driverMap);
+    } else {
+        traveledLine.setLatLngs(traveledPoints);
+    }
+}
+
 lorrySelect.addEventListener('change', () => {
     routeKey = '';
+    resetTraveledPath();
+    loadTraveledPath();
     updateDestinationSummary();
     const option = selectedLorryOption();
     if (!option || !option.value) {
@@ -446,6 +577,7 @@ lorrySelect.addEventListener('change', () => {
 if (lorrySelect.value) {
     const option = selectedLorryOption();
     updateDestinationSummary();
+    loadTraveledPath();
     drawRoute(Number.parseFloat(option.dataset.currentLat), Number.parseFloat(option.dataset.currentLng));
 }
 
@@ -550,6 +682,7 @@ async function startTracking() {
     trackingActive = true;
     followMode = true;
     locateMapBtn.classList.remove('locate-muted');
+    updateDestinationSummary();
     routeKey = '';
     trackingGeneration++;
     lorrySelect.disabled = true;
@@ -570,6 +703,12 @@ function onPositionSuccess(position) {
     currentLat = position.coords.latitude;
     currentLng = position.coords.longitude;
     const accuracy = position.coords.accuracy;
+
+    appendTraveledPoint(currentLat, currentLng, accuracy);
+    const destination = coordinatesFromOption();
+    if (destination && Number.isFinite(destination.destinationLat) && Number.isFinite(destination.destinationLng)) {
+        updateCompletionButton(destination);
+    }
 
     coordText.textContent = currentLat.toFixed(6) + '\u00b0N, ' + currentLng.toFixed(6) + '\u00b0E';
     accuracyText.textContent = 'Accuracy: \u00b1' + Math.round(accuracy) + 'm';
@@ -676,6 +815,14 @@ function sendPosition(sessionId) {
             }
             if (gpsData.arrival_completed) {
                 addHistory(timeStr, 'Destination completed', true);
+                const option = selectedLorryOption();
+                if (option && Number(option.value) === sentLorryId) {
+                    option.dataset.destinationLat = '';
+                    option.dataset.destinationLng = '';
+                    option.dataset.ongoingLocation = '';
+                    routeKey = '';
+                    drawRoute(sentLat, sentLng);
+                }
             }
         } else {
             addHistory('now', 'Error: ' + (data.message || 'Unknown error'), false);
@@ -714,9 +861,11 @@ function stopTracking() {
 
     btnStart.classList.remove('hidden');
     btnStop.classList.add('hidden');
+    completeDestinationBtn.classList.add('hidden');
     btnStart.disabled = false;
     btnStart.textContent = 'Start Tracking';
     lorrySelect.disabled = false;
+    updateDestinationSummary();
     updateStatus('inactive', 'Not tracking');
 
     if (stopLorryId) {

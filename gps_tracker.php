@@ -945,25 +945,31 @@ function fitMapToTrucks() {
 
 // ===== Breadcrumb Trails =====
 const breadcrumbLines = {};
+const breadcrumbRequests = {};
 
 function drawBreadcrumbs(truck) {
     const trackerMap = window.trackerMap;
     if (!trackerMap) return;
 
     const id = String(truck.lorry_id);
-    if (breadcrumbLines[id]) {
-        trackerMap.removeLayer(breadcrumbLines[id]);
-        delete breadcrumbLines[id];
+    if (truck.current_lat === null || truck.current_long === null) {
+        if (breadcrumbLines[id]) { trackerMap.removeLayer(breadcrumbLines[id]); delete breadcrumbLines[id]; }
+        delete breadcrumbRequests[id];
+        return;
     }
-    if (truck.current_lat === null || truck.current_long === null) return;
 
+    const requestId = (breadcrumbRequests[id] || 0) + 1;
+    breadcrumbRequests[id] = requestId;
     fetch('api/gps_history.php?lorry_id=' + truck.lorry_id + '&limit=20')
         .then(r => r.json())
         .then(data => {
-            if (!data.success || !data.history || data.history.length < 2) return;
-            const coords = data.history.map(h => [parseFloat(h.latitude), parseFloat(h.longitude)]);
-            coords.push([parseFloat(truck.current_lat), parseFloat(truck.current_long)]);
-            const line = L.polyline(coords, { color: '#94a3b8', weight: 2, opacity: 0.5, dashArray: '4,6' }).addTo(trackerMap);
+            if (breadcrumbRequests[id] !== requestId || !data.success || !data.history || data.history.length < 2) return;
+            const coords = data.history.reverse().map(h => [parseFloat(h.latitude), parseFloat(h.longitude)]);
+            const latest = coords[coords.length - 1];
+            const current = [parseFloat(truck.current_lat), parseFloat(truck.current_long)];
+            if (!latest || latest[0] !== current[0] || latest[1] !== current[1]) coords.push(current);
+            const line = L.polyline(coords, { color: '#1d4ed8', weight: 4, opacity: 0.75, lineCap: 'round', lineJoin: 'round' }).addTo(trackerMap);
+            if (breadcrumbLines[id]) trackerMap.removeLayer(breadcrumbLines[id]);
             breadcrumbLines[id] = line;
         })
         .catch(() => {});
